@@ -1,0 +1,40 @@
+Traceback (most recent call last):
+  File "/mnt/extra/Projects/project_fairy/Fairy_Assistant/tests/test_server.py", line 121, in test_action_parser_mock
+    from action_parser import parse_and_execute
+ModuleNotFoundError: No module named 'action_parser'
+
+############################################################
+# FAIRY ASSISTANT - SERVER TESTS
+############################################################
+
+============================================================
+TEST: Action Parser with Mocked Execution
+============================================================
+[Test] ✗ Error: No module named 'action_parser'
+
+[Info] Test 2 requires the server to be running.
+[Info] If server is not running, this test will fail gracefully.
+
+============================================================
+TEST: Client Command with Action Tag
+============================================================
+[Test] Connecting to localhost:5000...
+[Test] Received server_action: {'type': 'log', 'message': 'Connected to Fairy Assistant'}
+[Test] ✓ Connected to server
+[Test] Emitting client_command: {'text': 'Open Firefox'}
+[Test] Waiting for server response...
+[Test] Received server_action: {'type': 'speak', 'message': 'Error communicating with Ollama: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download'}
+[Test] ✓ Received response from server
+[Test] Response type: speak
+[Test] Message: Error communicating with Ollama: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download
+[Test] ✓ Server processed command and returned response
+[Test] Disconnected from server
+
+============================================================
+TEST SUMMARY
+============================================================
+  action_parser: ✗ FAILED
+  client_command: ✓ PASSED
+
+Total: 1/2 tests passed
+============================================================

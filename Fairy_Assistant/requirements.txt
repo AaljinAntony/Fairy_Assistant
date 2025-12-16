@@ -1,0 +1,25 @@
+# Server
+flask
+flask-socketio
+eventlet
+
+# Local LLM
+ollama
+
+# Local STT (Speech-to-Text)
+openai-whisper
+torch
+numpy
+
+# Memory (Vector Store)
+chromadb
+
+# Desktop Automation
+pyautogui
+python-xlib
+
+# Configuration
+python-dotenv
+
+# RAG / Text Splitting
+langchain-text-splitters

@@ -1,0 +1,40 @@
+name: fairy_assistant
+description: Fairy AI Assistant - Voice-controlled AI companion
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # SocketIO Client for server communication
+  socket_io_client: ^3.0.0
+  
+  # Audio recording
+  record: ^5.0.0
+  
+  # File path utilities
+  path_provider: ^2.1.0
+  
+  # Permission handling
+  permission_handler: ^11.0.0
+  
+  # URL launcher for opening apps/links
+  url_launcher: ^6.2.0
+  
+  # Text-to-Speech
+  flutter_tts: ^4.2.0
+  
+  # Cupertino icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

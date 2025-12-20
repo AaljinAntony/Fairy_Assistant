@@ -13,14 +13,17 @@ dependencies:
   # SocketIO Client for server communication
   socket_io_client: ^3.0.0
   
+  # HTTP for other requests
+  http: ^1.2.0
+  
   # Audio recording
-  record: ^5.0.0
+  record: ^6.1.2
   
   # File path utilities
-  path_provider: ^2.1.0
+  path_provider: ^2.1.2
   
   # Permission handling
-  permission_handler: ^11.0.0
+  permission_handler: ^11.3.0
   
   # URL launcher for opening apps/links
   url_launcher: ^6.2.0

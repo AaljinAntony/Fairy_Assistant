@@ -54,6 +54,8 @@ Fairy_Assistant/
 ├── memory_brain.py         # ChromaDB wrapper
 ├── action_parser.py        # Logic to parse [ACTION] tags
 ├── run_dev.sh              # Developer script to launch backend + Flutter
+├── verify_linux.py         # Automation tests
+├── verify_backend.py       # Backend verification
 ├── tools/
 │   ├── linux_ops.py        # Desktop automation (X11/subprocess)
 │   └── android_ops.py      # SocketIO Emitters
@@ -99,6 +101,7 @@ The LLM outputs tags. `action_parser.py` executes them.
 | Type | `[ACTION: TYPE_LINUX <text>]` | `linux_ops.py` |
 | Lock | `[ACTION: SYSTEM_LINUX lock]` | `linux_ops.py` |
 | Mute | `[ACTION: SYSTEM_LINUX mute]` | `linux_ops.py` |
+| Screenshot | `[ACTION: SCREENSHOT_LINUX]` | `linux_ops.py` |
 | Android Msg | `[ACTION: ANDROID_MSG ...]` | `android_ops.py` |
 
 ---
@@ -193,5 +196,7 @@ python -m pytest tests/
 - ✅ Flutter mobile app with voice recording
 - ✅ Text-to-Speech integration
 - ✅ Developer utility script (`run_dev.sh`)
+- ✅ Verification scripts (`verify_linux.py`, `verify_backend.py`)
+- ✅ Screenshot screenshot capability (via `scrot`)
 - ⏳ Android intent handlers (SMS, Call) - In Progress
-- ⏳ Screenshot/Vision capabilities - Planned
+- ⏳ Vision integration (multimodal LLM analysis) - Planned

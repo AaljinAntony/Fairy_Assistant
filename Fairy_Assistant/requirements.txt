@@ -9,6 +9,8 @@ ollama
 # Local STT (Speech-to-Text)
 openai-whisper
 torch
+torchaudio
+soundfile
 numpy
 
 # Memory (Vector Store)

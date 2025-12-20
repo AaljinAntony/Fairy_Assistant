@@ -26,37 +26,38 @@ class FairyAssistantApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const FairyHomePage(),
+      home: const ChatScreen(),
     );
   }
 }
 
-class FairyHomePage extends StatefulWidget {
-  const FairyHomePage({super.key});
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
 
   @override
-  State<FairyHomePage> createState() => _FairyHomePageState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _FairyHomePageState extends State<FairyHomePage>
-    with SingleTickerProviderStateMixin {
+class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateMixin {
   // ========== Configuration ==========
-  // 10.0.2.2 is the Android Emulator's special IP alias for the host PC's localhost.
-  // This allows the emulator to connect to a server running on your development machine.
+  // 10.0.2.2 is the Android Emulator's special IP alias for host localhost.
   static const String serverUrl = 'http://10.0.2.2:5000';
 
   // ========== State ==========
   late io.Socket socket;
   final AudioRecorder _recorder = AudioRecorder();
   final FlutterTts _tts = FlutterTts();
+  final TextEditingController _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   bool _isConnected = false;
   bool _isRecording = false;
-  String _transcript = '';
-  String _response = '';
   String _statusMessage = 'Connecting...';
-  List<String> _logs = [];
+  
+  // Chat History: {role: 'user'|'fairy'|'system', text: '...'}
+  final List<Map<String, String>> _messages = [];
 
+  // Animation for Mic
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -71,10 +72,10 @@ class _FairyHomePageState extends State<FairyHomePage>
 
   void _initAnimations() {
     _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
   }
@@ -82,16 +83,13 @@ class _FairyHomePageState extends State<FairyHomePage>
   Future<void> _initTts() async {
     await _tts.setLanguage('en-US');
     await _tts.setSpeechRate(0.5);
-    await _tts.setVolume(1.0);
   }
 
   Future<void> _requestPermissions() async {
-    final status = await Permission.microphone.request();
-    if (status.isDenied) {
-      _addLog('Microphone permission denied');
-    }
+    await Permission.microphone.request();
   }
 
+  // ========== SocketIO ==========
   void _connectToServer() {
     socket = io.io(
       serverUrl,
@@ -102,84 +100,117 @@ class _FairyHomePageState extends State<FairyHomePage>
     );
 
     socket.onConnect((_) {
-      setState(() {
-        _isConnected = true;
-        _statusMessage = 'Connected to Fairy';
-      });
-      _addLog('Connected to server');
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+          _statusMessage = 'Connected';
+          _addMessage('system', 'Connected to Fairy Assistant');
+        });
+      }
     });
 
     socket.onDisconnect((_) {
-      setState(() {
-        _isConnected = false;
-        _statusMessage = 'Disconnected';
-      });
-      _addLog('Disconnected from server');
+      if (mounted) {
+        setState(() {
+          _isConnected = false;
+          _statusMessage = 'Disconnected';
+          _addMessage('system', 'Disconnected from server');
+        });
+      }
     });
 
-    socket.onConnectError((error) {
-      setState(() {
-        _statusMessage = 'Connection failed';
-      });
-      _addLog('Connection error: $error');
+    socket.on('server_response', (data) {
+        // Handling streaming content or full text
+        // For simplicity with the current server implementation (which emits 'server_response' with chunks)
+        // We will adapt.
+        // Wait, main.py emits: {'text': chunk, 'done': bool}
+        // Let's assume we just want to show the final result or append?
+        // Actually, main.py sends chunks. It would be nicer to stream update the last message.
+        // But let's look at how main.py handles valid parsed actions log vs speak.
+        // main.py emits 'server_action' {type: speak, message: ...} in the original code,
+        // BUT in the refactored main.py I see:
+        // emit('server_response', {'text': chunk, 'done': False})
+        // emit('server_log', ...)
+        // Wait, did I remove the 'server_action'='speak' in Phase 2?
+        // Let's check main.py again in my thought process.
+        // Phase 2 implementation uses `emit('server_response', {'text': chunk})`.
+        // It does NOT emit 'speak' type anymore.
+        // So the App must listen to `server_response`.
+        
+        _handleServerResponse(data);
     });
 
-    // Listen for server actions
-    socket.on('server_action', (data) {
-      _handleServerAction(data);
+    socket.on('server_log', (data) {
+         // Optional: show logs
+         print("Server Log: $data");
     });
 
     socket.connect();
   }
 
-  void _handleServerAction(dynamic data) {
+  // Buffering streaming response
+  String _currentStreamBuffer = "";
+  bool _isStreaming = false;
+
+  void _handleServerResponse(dynamic data) {
     if (data is! Map) return;
+    
+    String text = data['text'] ?? '';
+    bool done = data['done'] ?? false;
 
-    final type = data['type'] as String?;
-    final message = data['message'] as String?;
+    if (!_isStreaming) {
+       // Start of a new message
+       setState(() {
+         _isStreaming = true;
+         _currentStreamBuffer = text;
+         _messages.add({'role': 'fairy', 'text': _currentStreamBuffer});
+       });
+    } else {
+       // Append to current message
+       setState(() {
+         _currentStreamBuffer += text;
+         _messages.last['text'] = _currentStreamBuffer;
+       });
+    }
 
-    switch (type) {
-      case 'speak':
-        setState(() => _response = message ?? '');
-        _speak(message ?? '');
-        _addLog('Fairy: ${message?.substring(0, (message.length > 50 ? 50 : message.length))}...');
-        break;
-      case 'transcript':
-        setState(() => _transcript = message ?? '');
-        _addLog('You said: $message');
-        break;
-      case 'log':
-        _addLog(message ?? '');
-        break;
-      case 'trigger_intent':
-        _handleIntent(data);
-        break;
+    if (done) {
+        setState(() {
+            _isStreaming = false;
+        });
+        // Speak the full response once done
+        _speak(_currentStreamBuffer);
+        _scrollToBottom();
     }
   }
 
-  void _handleIntent(Map<dynamic, dynamic> data) {
-    final intent = data['intent'] as String?;
-    _addLog('Intent received: $intent');
-    // TODO: Implement intent handling (SMS, Call, etc.)
-  }
-
   Future<void> _speak(String text) async {
-    await _tts.speak(text);
+    if (text.isNotEmpty) {
+      await _tts.speak(text);
+    }
   }
 
-  void _addLog(String message) {
+  void _addMessage(String role, String text) {
     setState(() {
-      _logs.insert(0, '[${DateTime.now().toString().substring(11, 19)}] $message');
-      if (_logs.length > 50) _logs.removeLast();
+      _messages.add({'role': role, 'text': text});
+    });
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
   // ========== Recording ==========
   Future<void> _startRecording() async {
-    if (!await _recorder.hasPermission()) {
-      _addLog('No microphone permission');
-      return;
-    }
+    if (!await _recorder.hasPermission()) return;
 
     final tempDir = await getTemporaryDirectory();
     final filePath = '${tempDir.path}/fairy_audio.wav';
@@ -189,35 +220,33 @@ class _FairyHomePageState extends State<FairyHomePage>
       path: filePath,
     );
 
-    setState(() {
-      _isRecording = true;
-      _transcript = '';
-      _response = '';
-    });
+    setState(() => _isRecording = true);
     _pulseController.repeat(reverse: true);
-    _addLog('Recording started...');
   }
 
   Future<void> _stopRecording() async {
     final path = await _recorder.stop();
     _pulseController.stop();
     _pulseController.reset();
-
     setState(() => _isRecording = false);
 
     if (path != null) {
       final file = File(path);
       final bytes = await file.readAsBytes();
-      _addLog('Sending ${bytes.length} bytes...');
+      // Send audio
       socket.emit('audio_command', bytes);
+      _addMessage('system', 'Sending Audio...');
     }
   }
 
-  // ========== Text Command ==========
-  void _sendTextCommand(String text) {
+  // ========== Text Sending ==========
+  void _sendText() {
+    final text = _textController.text.trim();
     if (text.isEmpty) return;
+    
+    _addMessage('user', text);
     socket.emit('client_command', {'text': text});
-    _addLog('Sent: $text');
+    _textController.clear();
   }
 
   @override
@@ -226,243 +255,136 @@ class _FairyHomePageState extends State<FairyHomePage>
     _recorder.dispose();
     _tts.stop();
     _pulseController.dispose();
+    _textController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D1A),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(child: _buildMainContent()),
-            _buildLogPanel(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: _isConnected ? Colors.greenAccent : Colors.redAccent,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: (_isConnected ? Colors.greenAccent : Colors.redAccent)
-                      .withOpacity(0.5),
-                  blurRadius: 8,
-                  spreadRadius: 2,
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Fairy Assistant'),
+        backgroundColor: const Color(0xFF1F1F1F),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Container(
+                width: 10, height: 10,
+                decoration: BoxDecoration(
+                  color: _isConnected ? Colors.green : Colors.red,
+                  shape: BoxShape.circle,
                 ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            _statusMessage,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 14,
-            ),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white54),
-            onPressed: () => _showSettingsDialog(),
-          ),
+          )
         ],
       ),
-    );
-  }
-
-  Widget _buildMainContent() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Title
-        const Text(
-          'FAIRY',
-          style: TextStyle(
-            fontSize: 48,
-            fontWeight: FontWeight.w200,
-            color: Colors.white,
-            letterSpacing: 16,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Your AI Assistant',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.white.withOpacity(0.5),
-            letterSpacing: 4,
-          ),
-        ),
-        const SizedBox(height: 60),
-
-        // Push to Talk Button
-        GestureDetector(
-          onTapDown: (_) => _startRecording(),
-          onTapUp: (_) => _stopRecording(),
-          onTapCancel: () => _stopRecording(),
-          child: AnimatedBuilder(
-            animation: _pulseAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: _isRecording ? _pulseAnimation.value : 1.0,
-                child: Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: _isRecording
-                          ? [const Color(0xFFFF6B6B), const Color(0xFFFF8E53)]
-                          : [const Color(0xFF6C63FF), const Color(0xFF4ECDC4)],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_isRecording
-                                ? const Color(0xFFFF6B6B)
-                                : const Color(0xFF6C63FF))
-                            .withOpacity(0.4),
-                        blurRadius: 30,
-                        spreadRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    _isRecording ? Icons.mic : Icons.mic_none,
-                    size: 64,
-                    color: Colors.white,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          _isRecording ? 'Listening...' : 'Hold to Speak',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.white.withOpacity(0.6),
-          ),
-        ),
-        const SizedBox(height: 40),
-
-        // Response Display
-        if (_response.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 32),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.1),
-              ),
-            ),
-            child: Text(
-              _response,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                height: 1.5,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildLogPanel() {
-    return Container(
-      height: 120,
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Column(
         children: [
-          Text(
-            'Activity Log',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.5),
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 8),
+          // Chat List
           Expanded(
             child: ListView.builder(
-              itemCount: _logs.length,
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: _messages.length,
               itemBuilder: (context, index) {
-                return Text(
-                  _logs[index],
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 11,
-                    fontFamily: 'monospace',
+                final msg = _messages[index];
+                final role = msg['role'];
+                final text = msg['text'] ?? '';
+                
+                final isUser = role == 'user';
+                final isSystem = role == 'system';
+                
+                if (isSystem) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text(text, style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    ),
+                  );
+                }
+
+                return Align(
+                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isUser ? const Color(0xFF6C63FF) : const Color(0xFF2C2C2C),
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(12),
+                        topRight: const Radius.circular(12),
+                        bottomLeft: isUser ? const Radius.circular(12) : Radius.zero,
+                        bottomRight: isUser ? Radius.zero : const Radius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      text,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                   ),
                 );
               },
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showSettingsDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A2E),
-        title: const Text('Send Text Command', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Type a command...',
-            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+          
+          // Input Area
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: const Color(0xFF1F1F1F),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'Message Fairy...',
+                      hintStyle: TextStyle(color: Colors.white38),
+                      border: InputBorder.none,
+                    ),
+                    onSubmitted: (_) => _sendText(),
+                  ),
+                ),
+                
+                // Mic / Send Button
+                GestureDetector(
+                  onTapDown: (_) => _startRecording(),
+                  onTapUp: (_) => _stopRecording(),
+                  onTapCancel: () => _stopRecording(),
+                  child: AnimatedBuilder(
+                    animation: _pulseAnimation,
+                    builder: (context, child) {
+                      return Transform.scale(
+                        scale: _isRecording ? _pulseAnimation.value : 1.0,
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _isRecording ? Colors.redAccent : const Color(0xFF6C63FF),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _isRecording ? Icons.mic : Icons.send, // Send icon if typing? 
+                            // Actually let's keep it simple: Mic always active for check, but maybe Send if text?
+                            // Plan said "Hold to Talk".
+                            // Let's make it intuitive: If text is empty -> Mic, else -> Send.
+                            color: Colors.white,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  onTap: () {
+                      if (_textController.text.isNotEmpty) {
+                          _sendText();
+                      }
+                  },
+                ),
+              ],
             ),
-            focusedBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF6C63FF)),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _sendTextCommand(controller.text);
-              Navigator.pop(context);
-            },
-            child: const Text('Send'),
           ),
         ],
       ),

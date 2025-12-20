@@ -1,18 +1,33 @@
 """
-action_parser.py - Parse and execute [ACTION] tags from LLM responses.
+action_parser.py - Parse and Execute [ACTION] tags.
 
-Parses structured action tags from Ollama responses and routes them
-to the appropriate handler functions.
+Parses structured action tags from Ollama responses and executes
+them using the linux_ops module.
 """
 
 import re
 from tools import linux_ops
-from tools import android_ops
+
+# Aliases for action types to handle LLM variations
+ACTION_ALIASES = {
+    "TYPE": "TYPE_LINUX",
+    "WRITE": "TYPE_LINUX",
+    "OPEN": "OPEN_LINUX",
+    "LAUNCH": "OPEN_LINUX",
+    "START": "OPEN_LINUX",
+    "SYSTEM": "SYSTEM_LINUX",
+    "CONTROL": "SYSTEM_LINUX",
+    "PRESS": "KEY_LINUX",
+    "KEY": "KEY_LINUX",
+    "SCREENSHOT": "SCREENSHOT_LINUX",
+    "SNAP": "SCREENSHOT_LINUX"
+}
 
 # Regex pattern to match action tags
-# Format: [ACTION: TYPE | arg1 | arg2 | ...]
+# Relaxed format: [ACTION: TYPE | arg ... ] or [ACTION: TYPE: arg ...]
+# Captures optional arguments
 ACTION_PATTERN = re.compile(
-    r'\[ACTION:\s*(\w+)\s*(?:\|\s*([^\]]+))?\]',
+    r'\[ACTION:\s*([A-Za-z_]+)(?:\s*[|:]\s*([^\]]*))?\]',
     re.IGNORECASE
 )
 
@@ -30,6 +45,7 @@ def parse_and_execute(response_text: str) -> dict:
     results = {
         'actions_found': 0,
         'actions_executed': 0,
+        'actions': [], 
         'results': [],
         'clean_text': response_text
     }
@@ -39,17 +55,38 @@ def parse_and_execute(response_text: str) -> dict:
     results['actions_found'] = len(matches)
     
     for match in matches:
-        action_type = match[0].upper()
+        raw_type = match[0].upper().strip()
         args_str = match[1].strip() if match[1] else ''
-        args = [arg.strip() for arg in args_str.split('|')] if args_str else []
         
-        print(f"[Parser] Found action: {action_type} with args: {args}")
+        # Resolve alias
+        action_type = ACTION_ALIASES.get(raw_type, raw_type)
         
+        # Clean arguments
+        args = []
+        if args_str:
+            # If multiple args separated by pipe were intended but regex swallowed them
+            # We can split by pipe again if present
+            raw_args = [arg.strip() for arg in args_str.split('|')]
+            
+            # Clean quotes from args (LLM often quotes the payload e.g. "firefox")
+            for arg in raw_args:
+                if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+                    arg = arg[1:-1]
+                args.append(arg)
+        
+        print(f"[Parser] Found action: {raw_type} -> {action_type} with args: {args}")
+        
+        # Execute the action
         success = execute_action(action_type, args)
+        
         results['results'].append({
-            'action': action_type,
+            'type': action_type,
             'args': args,
             'success': success
+        })
+        results['actions'].append({
+            'type': action_type,
+            'args': args
         })
         
         if success:
@@ -63,90 +100,46 @@ def parse_and_execute(response_text: str) -> dict:
 
 def execute_action(action_type: str, args: list) -> bool:
     """
-    Execute a single action based on its type.
-    
-    Args:
-        action_type: The type of action (e.g., 'OPEN_LINUX', 'TYPE_LINUX').
-        args: List of arguments for the action.
-    
-    Returns:
-        True if action was executed successfully, False otherwise.
+    Execute a single action based on its type using linux_ops.
     """
     try:
-        # Linux app opening
+        # OPEN_LINUX: Launch an app
         if action_type == 'OPEN_LINUX':
             if args:
                 return linux_ops.open_app(args[0])
             print("[Parser] OPEN_LINUX requires an app name")
             return False
         
-        # Linux text typing
+        # TYPE_LINUX: Type text
         elif action_type == 'TYPE_LINUX':
             if args:
                 return linux_ops.type_text(args[0])
             print("[Parser] TYPE_LINUX requires text to type")
             return False
         
-        # Linux system control (lock, mute, etc.)
+        # SYSTEM_LINUX: System commands (lock, mute, volume)
         elif action_type == 'SYSTEM_LINUX':
             if args:
                 return linux_ops.system_control(args[0])
             print("[Parser] SYSTEM_LINUX requires a command")
             return False
         
-        # Key press
+        # KEY_LINUX: Press key combinations
         elif action_type == 'KEY_LINUX':
             if args:
                 return linux_ops.press_key(args[0])
             print("[Parser] KEY_LINUX requires a key name")
             return False
-        
-        # Android SMS
-        elif action_type == 'ANDROID_MSG':
-            if len(args) >= 2:
-                return android_ops.send_sms(args[0], args[1])
-            print("[Parser] ANDROID_MSG requires [phone_number, message]")
-            return False
-        
-        # Android Call
-        elif action_type == 'ANDROID_CALL':
-            if args:
-                return android_ops.make_call(args[0])
-            print("[Parser] ANDROID_CALL requires [phone_number]")
-            return False
-        
-        # Android App
-        elif action_type == 'ANDROID_APP':
-            if args:
-                return android_ops.open_app(args[0])
-            print("[Parser] ANDROID_APP requires [package_name]")
-            return False
-        
-        # Android WhatsApp
-        elif action_type == 'ANDROID_WHATSAPP':
-            if len(args) >= 2:
-                return android_ops.send_whatsapp(args[0], args[1])
-            print("[Parser] ANDROID_WHATSAPP requires [phone_number, message]")
-            return False
+
+        # SCREENSHOT_LINUX: Take a screenshot
+        elif action_type == 'SCREENSHOT_LINUX':
+            path = linux_ops.take_screenshot()
+            return bool(path)
         
         else:
-            print(f"[Parser] Unknown action type: {action_type}")
+            print(f"[Parser] Unknown or unsupported action type: {action_type}")
             return False
             
     except Exception as e:
         print(f"[Parser] Error executing {action_type}: {e}")
         return False
-
-
-def get_supported_actions() -> dict:
-    """Return a dict of supported action types and their descriptions."""
-    return {
-        'OPEN_LINUX': 'Open a Linux application. Args: [app_name]',
-        'TYPE_LINUX': 'Type text on the keyboard. Args: [text]',
-        'SYSTEM_LINUX': 'System control (lock, mute). Args: [command]',
-        'KEY_LINUX': 'Press a key or key combo. Args: [key]',
-        'ANDROID_MSG': 'Send SMS via Android. Args: [number | message]',
-        'ANDROID_CALL': 'Make a phone call via Android. Args: [number]',
-        'ANDROID_APP': 'Open an app on Android. Args: [package_name]',
-        'ANDROID_WHATSAPP': 'Send WhatsApp message. Args: [number | message]',
-    }

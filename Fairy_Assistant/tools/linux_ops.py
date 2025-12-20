@@ -28,6 +28,7 @@ def open_app(app_name: str) -> bool:
         True if the app was launched successfully, False otherwise.
     """
     try:
+        app_name = app_name.strip()
         # Use Popen to launch without blocking
         subprocess.Popen(
             [app_name],
@@ -70,7 +71,7 @@ def system_control(command: str) -> bool:
     Execute system control commands.
     
     Args:
-        command: The command to execute ('lock', 'mute', 'unmute').
+        command: The command to execute ('lock', 'mute', 'unmute', 'volume_up', 'volume_down').
     
     Returns:
         True if successful, False otherwise.
@@ -79,7 +80,11 @@ def system_control(command: str) -> bool:
     
     try:
         if command == 'lock':
-            subprocess.run(['xdg-screensaver', 'lock'], check=True)
+            # Try gnome-screensaver first, then xdg-screensaver
+            try:
+                subprocess.run(['gnome-screensaver-command', '-l'], check=True, stderr=subprocess.DEVNULL)
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                subprocess.run(['xdg-screensaver', 'lock'], check=True)
             print("[Linux] Screen locked")
             return True
             
@@ -99,6 +104,24 @@ def system_control(command: str) -> bool:
                 capture_output=True
             )
             print("[Linux] Audio unmuted")
+            return True
+
+        elif command == 'volume_up':
+            try:
+                subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', '5%+'], check=True, capture_output=True)
+            except subprocess.CalledProcessError:
+                # Fallback to default device
+                subprocess.run(['amixer', 'sset', 'Master', '5%+'], check=True, capture_output=True)
+            print("[Linux] Volume increased")
+            return True
+
+        elif command == 'volume_down':
+            try:
+                subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', '5%-'], check=True, capture_output=True)
+            except subprocess.CalledProcessError:
+                # Fallback
+                subprocess.run(['amixer', 'sset', 'Master', '5%-'], check=True, capture_output=True)
+            print("[Linux] Volume decreased")
             return True
             
         else:
@@ -138,3 +161,30 @@ def press_key(key: str) -> bool:
     except Exception as e:
         print(f"[Linux] Error pressing key {key}: {e}")
         return False
+
+
+def take_screenshot() -> str:
+    """
+    Take a screenshot using scrot and save it to ./context/vision_input.png.
+    
+    Returns:
+        Path to the screenshot file, or empty string if failed.
+    """
+    try:
+        # Ensure context directory exists
+        context_dir = os.path.join(os.getcwd(), 'context')
+        os.makedirs(context_dir, exist_ok=True)
+        
+        file_path = os.path.join(context_dir, 'vision_input.png')
+        
+        # Use scrot to take screenshot (overwrite)
+        subprocess.run(['scrot', '--overwrite', file_path], check=True)
+        
+        print(f"[Linux] Screenshot saved to {file_path}")
+        return file_path
+    except FileNotFoundError:
+        print("[Linux] 'scrot' not found. Please install it (sudo apt install scrot).")
+        return ""
+    except Exception as e:
+        print(f"[Linux] Error taking screenshot: {e}")
+        return ""

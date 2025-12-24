@@ -40,12 +40,13 @@ print("[Fairy] Loading Whisper Model (base)... This may take a moment.")
 ear_model = whisper.load_model("base")
 print("[Fairy] Whisper Model Loaded.")
 
-# System Prompt
-SYSTEM_PROMPT = """You are Fairy, a sentient, helpful local assistant living on the user's computer. 
-You can switch between apps, type text, and control the system.
-Your memory is persistent. Use the context provided to answer questions.
-When you want to perform an action, use the tag [ACTION: TYPE | args].
-"""
+# System Prompt - Loaded from context/ai_context.md
+try:
+    with open("context/ai_context.md", "r") as f:
+        SYSTEM_PROMPT = f.read()
+except FileNotFoundError:
+    print("[Fairy] Warning: context/ai_context.md not found. Using default prompt.")
+    SYSTEM_PROMPT = """You are Fairy. Use [ACTION: TYPE | text] or [ACTION: OPEN | app]."""
 
 print(f"[Fairy] Using Ollama model: {MODEL_NAME}")
 
@@ -80,43 +81,93 @@ def handle_disconnect():
 @socketio.on('client_command')
 def handle_client_command(data):
     """
-    Handle text commands from the client.
+    Handle text commands from the client with ReAct loop.
     Expected data format: {'text': 'user message'}
+    
+    ReAct Loop: Continues executing actions until the LLM produces
+    a final answer (no action tag) or reaches max steps.
     """
+    MAX_STEPS = 5
+    
     text = data.get('text', '') if isinstance(data, dict) else str(data)
     print(f"[SocketIO] Cmd: {text}")
     
     if not text:
         return
 
-    # 1. Retrieve context
+    # 1. Retrieve context from memory
     memories = brain.retrieve(text)
     context_str = "\n".join([f"- {m['text']}" for m in memories])
     
-    # 2. Construct prompt
-    full_prompt = f"{SYSTEM_PROMPT}\n\nCONTEXT FROM MEMORY:\n{context_str}\n\nUSER: {text}\nASSISTANT:"
+    # 2. Initialize conversation history for this request
+    conversation_history = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"CONTEXT FROM MEMORY:\n{context_str}\n\nUSER: {text}"}
+    ]
     
-    # 3. Call Ollama (Stream)
-    full_response = ""
-    print("[Fairy] Thinking...")
+    step = 0
+    final_response = ""
     
-    for chunk in ask_ollama_stream(full_prompt):
-        full_response += chunk
-        # 4. Emit chunks
-        emit('server_response', {'text': chunk, 'done': False})
+    while step < MAX_STEPS:
+        step += 1
+        print(f"\n[Loop Step {step}] Thinking...")
+        
+        # 3. Call Ollama with conversation history
+        full_response = ""
+        try:
+            stream = ollama.chat(
+                model=MODEL_NAME,
+                messages=conversation_history,
+                stream=True
+            )
+            for chunk in stream:
+                chunk_text = chunk['message']['content']
+                full_response += chunk_text
+                # Emit chunks to client so they see the thought process
+                emit('server_response', {'text': chunk_text, 'done': False})
+        except Exception as e:
+            error_msg = f"Error: {e}"
+            emit('server_response', {'text': error_msg, 'done': True})
+            print(f"[Fairy] {error_msg}")
+            return
+        
+        emit('server_response', {'text': '', 'done': True})
+        print(f"[Fairy] Response: {full_response[:80]}...")
+        
+        # Add assistant response to history
+        conversation_history.append({"role": "assistant", "content": full_response})
+        final_response = full_response
+        
+        # 4. Parse and execute actions
+        parsed = action_parser.parse_and_execute(full_response)
+        
+        if parsed['actions_found'] > 0:
+            print(f"[Fairy] Actions: Found {parsed['actions_found']}, Executed {parsed['actions_executed']}")
+            emit('server_log', {'message': f"Executed {parsed['actions_executed']}/{parsed['actions_found']} actions"})
+            
+            # 5. Append observation to conversation history for next iteration
+            observations = parsed.get('observations', [])
+            if observations:
+                observation_text = "\n".join([f"[OBSERVATION] {obs}" for obs in observations])
+                print(f"[Observation] {observation_text}")
+                conversation_history.append({
+                    "role": "user", 
+                    "content": f"System Observation:\n{observation_text}\n\nContinue with the task."
+                })
+            # Continue the loop to let AI process the observation
+        else:
+            # No action found - AI is done talking
+            print(f"[Loop Complete] No action found. Steps: {step}")
+            break
     
-    emit('server_response', {'text': '', 'done': True})
-    print(f"[Fairy] Response: {full_response[:50]}...")
+    if step >= MAX_STEPS:
+        print(f"[Loop] Max steps ({MAX_STEPS}) reached. Stopping.")
+        emit('server_log', {'message': f"Max steps ({MAX_STEPS}) reached"})
 
-    # 5. Parse and Execute Actions (Phase 3 enabled)
-    parsed = action_parser.parse_and_execute(full_response)
-    if parsed['actions_found'] > 0:
-        print(f"[Fairy] Actions: Found {parsed['actions_found']}, Executed {parsed['actions_executed']}")
-        emit('server_log', {'message': f"Executed {parsed['actions_executed']}/{parsed['actions_found']} actions"})
-
-    # 6. Store to Memory
+    # 6. Store to Memory (only final exchange)
     brain.store(text, metadata={"role": "user"})
-    brain.store(parsed['clean_text'], metadata={"role": "assistant"})
+    clean_text = action_parser.ACTION_PATTERN.sub('', final_response).strip()
+    brain.store(clean_text, metadata={"role": "assistant"})
 
 
 @socketio.on('audio_command')

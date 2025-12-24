@@ -47,6 +47,7 @@ def parse_and_execute(response_text: str) -> dict:
         'actions_executed': 0,
         'actions': [], 
         'results': [],
+        'observations': [],  # Collect observation messages for ReAct loop
         'clean_text': response_text
     }
     
@@ -77,17 +78,19 @@ def parse_and_execute(response_text: str) -> dict:
         print(f"[Parser] Found action: {raw_type} -> {action_type} with args: {args}")
         
         # Execute the action
-        success = execute_action(action_type, args)
+        success, message = execute_action(action_type, args)
         
         results['results'].append({
             'type': action_type,
             'args': args,
-            'success': success
+            'success': success,
+            'message': message
         })
         results['actions'].append({
             'type': action_type,
             'args': args
         })
+        results['observations'].append(message)
         
         if success:
             results['actions_executed'] += 1
@@ -98,48 +101,44 @@ def parse_and_execute(response_text: str) -> dict:
     return results
 
 
-def execute_action(action_type: str, args: list) -> bool:
+def execute_action(action_type: str, args: list) -> tuple[bool, str]:
     """
     Execute a single action based on its type using linux_ops.
+    
+    Returns:
+        Tuple of (success, message) for observation feedback.
     """
     try:
         # OPEN_LINUX: Launch an app
         if action_type == 'OPEN_LINUX':
             if args:
                 return linux_ops.open_app(args[0])
-            print("[Parser] OPEN_LINUX requires an app name")
-            return False
+            return False, "OPEN_LINUX requires an app name"
         
         # TYPE_LINUX: Type text
         elif action_type == 'TYPE_LINUX':
             if args:
                 return linux_ops.type_text(args[0])
-            print("[Parser] TYPE_LINUX requires text to type")
-            return False
+            return False, "TYPE_LINUX requires text to type"
         
         # SYSTEM_LINUX: System commands (lock, mute, volume)
         elif action_type == 'SYSTEM_LINUX':
             if args:
                 return linux_ops.system_control(args[0])
-            print("[Parser] SYSTEM_LINUX requires a command")
-            return False
+            return False, "SYSTEM_LINUX requires a command"
         
         # KEY_LINUX: Press key combinations
         elif action_type == 'KEY_LINUX':
             if args:
                 return linux_ops.press_key(args[0])
-            print("[Parser] KEY_LINUX requires a key name")
-            return False
+            return False, "KEY_LINUX requires a key name"
 
         # SCREENSHOT_LINUX: Take a screenshot
         elif action_type == 'SCREENSHOT_LINUX':
-            path = linux_ops.take_screenshot()
-            return bool(path)
+            return linux_ops.take_screenshot()
         
         else:
-            print(f"[Parser] Unknown or unsupported action type: {action_type}")
-            return False
+            return False, f"Unknown action type: {action_type}"
             
     except Exception as e:
-        print(f"[Parser] Error executing {action_type}: {e}")
-        return False
+        return False, f"Error executing {action_type}: {e}"

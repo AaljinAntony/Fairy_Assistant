@@ -17,7 +17,7 @@ pyautogui.FAILSAFE = True  # Move mouse to corner to abort
 pyautogui.PAUSE = 0.1  # Small pause between actions
 
 
-def open_app(app_name: str) -> bool:
+def open_app(app_name: str) -> tuple[bool, str]:
     """
     Open an application by name.
     
@@ -25,7 +25,7 @@ def open_app(app_name: str) -> bool:
         app_name: Name of the application to open (e.g., 'firefox', 'code').
     
     Returns:
-        True if the app was launched successfully, False otherwise.
+        Tuple of (success, message) for observation feedback.
     """
     try:
         app_name = app_name.strip()
@@ -36,17 +36,20 @@ def open_app(app_name: str) -> bool:
             stderr=subprocess.DEVNULL,
             start_new_session=True
         )
-        print(f"[Linux] Opened app: {app_name}")
-        return True
+        msg = f"Launched {app_name} successfully"
+        print(f"[Linux] {msg}")
+        return True, msg
     except FileNotFoundError:
-        print(f"[Linux] App not found: {app_name}")
-        return False
+        msg = f"App not found: {app_name}"
+        print(f"[Linux] {msg}")
+        return False, msg
     except Exception as e:
-        print(f"[Linux] Error opening app {app_name}: {e}")
-        return False
+        msg = f"Error opening {app_name}: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
 
 
-def type_text(text: str, interval: float = 0.02) -> bool:
+def type_text(text: str, interval: float = 0.02) -> tuple[bool, str]:
     """
     Type text using pyautogui (simulates keyboard input).
     
@@ -55,18 +58,21 @@ def type_text(text: str, interval: float = 0.02) -> bool:
         interval: Time in seconds between each character.
     
     Returns:
-        True if successful, False otherwise.
+        Tuple of (success, message) for observation feedback.
     """
     try:
         pyautogui.write(text, interval=interval)
-        print(f"[Linux] Typed: {text[:50]}...")
-        return True
+        preview = text[:30] + '...' if len(text) > 30 else text
+        msg = f"Typed: {preview}"
+        print(f"[Linux] {msg}")
+        return True, msg
     except Exception as e:
-        print(f"[Linux] Error typing text: {e}")
-        return False
+        msg = f"Error typing text: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
 
 
-def system_control(command: str) -> bool:
+def system_control(command: str) -> tuple[bool, str]:
     """
     Execute system control commands.
     
@@ -74,72 +80,70 @@ def system_control(command: str) -> bool:
         command: The command to execute ('lock', 'mute', 'unmute', 'volume_up', 'volume_down').
     
     Returns:
-        True if successful, False otherwise.
+        Tuple of (success, message) for observation feedback.
     """
     command = command.lower().strip()
     
     try:
         if command == 'lock':
-            # Try gnome-screensaver first, then xdg-screensaver
             try:
                 subprocess.run(['gnome-screensaver-command', '-l'], check=True, stderr=subprocess.DEVNULL)
             except (FileNotFoundError, subprocess.CalledProcessError):
                 subprocess.run(['xdg-screensaver', 'lock'], check=True)
-            print("[Linux] Screen locked")
-            return True
+            msg = "Screen locked"
+            print(f"[Linux] {msg}")
+            return True, msg
             
         elif command == 'mute':
-            subprocess.run(
-                ['amixer', '-D', 'pulse', 'sset', 'Master', 'toggle'],
-                check=True,
-                capture_output=True
-            )
-            print("[Linux] Audio toggled (mute/unmute)")
-            return True
+            subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', 'toggle'], check=True, capture_output=True)
+            msg = "Audio toggled (mute/unmute)"
+            print(f"[Linux] {msg}")
+            return True, msg
             
         elif command == 'unmute':
-            subprocess.run(
-                ['amixer', '-D', 'pulse', 'sset', 'Master', 'on'],
-                check=True,
-                capture_output=True
-            )
-            print("[Linux] Audio unmuted")
-            return True
+            subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', 'on'], check=True, capture_output=True)
+            msg = "Audio unmuted"
+            print(f"[Linux] {msg}")
+            return True, msg
 
         elif command == 'volume_up':
             try:
                 subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', '5%+'], check=True, capture_output=True)
             except subprocess.CalledProcessError:
-                # Fallback to default device
                 subprocess.run(['amixer', 'sset', 'Master', '5%+'], check=True, capture_output=True)
-            print("[Linux] Volume increased")
-            return True
+            msg = "Volume increased"
+            print(f"[Linux] {msg}")
+            return True, msg
 
         elif command == 'volume_down':
             try:
                 subprocess.run(['amixer', '-D', 'pulse', 'sset', 'Master', '5%-'], check=True, capture_output=True)
             except subprocess.CalledProcessError:
-                # Fallback
                 subprocess.run(['amixer', 'sset', 'Master', '5%-'], check=True, capture_output=True)
-            print("[Linux] Volume decreased")
-            return True
+            msg = "Volume decreased"
+            print(f"[Linux] {msg}")
+            return True, msg
             
         else:
-            print(f"[Linux] Unknown system command: {command}")
-            return False
+            msg = f"Unknown system command: {command}"
+            print(f"[Linux] {msg}")
+            return False, msg
             
     except subprocess.CalledProcessError as e:
-        print(f"[Linux] System command failed: {e}")
-        return False
+        msg = f"System command failed: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
     except FileNotFoundError as e:
-        print(f"[Linux] Required tool not found: {e}")
-        return False
+        msg = f"Required tool not found: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
     except Exception as e:
-        print(f"[Linux] Error executing system command: {e}")
-        return False
+        msg = f"Error executing system command: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
 
 
-def press_key(key: str) -> bool:
+def press_key(key: str) -> tuple[bool, str]:
     """
     Press a single key or key combination.
     
@@ -147,44 +151,45 @@ def press_key(key: str) -> bool:
         key: Key name (e.g., 'enter', 'escape', 'ctrl+c').
     
     Returns:
-        True if successful, False otherwise.
+        Tuple of (success, message) for observation feedback.
     """
     try:
         if '+' in key:
-            # Key combination (e.g., 'ctrl+c')
             keys = key.split('+')
             pyautogui.hotkey(*keys)
         else:
             pyautogui.press(key)
-        print(f"[Linux] Pressed key: {key}")
-        return True
+        msg = f"Pressed key: {key}"
+        print(f"[Linux] {msg}")
+        return True, msg
     except Exception as e:
-        print(f"[Linux] Error pressing key {key}: {e}")
-        return False
+        msg = f"Error pressing key {key}: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg
 
 
-def take_screenshot() -> str:
+def take_screenshot() -> tuple[bool, str]:
     """
     Take a screenshot using scrot and save it to ./context/vision_input.png.
     
     Returns:
-        Path to the screenshot file, or empty string if failed.
+        Tuple of (success, message) for observation feedback.
     """
     try:
-        # Ensure context directory exists
         context_dir = os.path.join(os.getcwd(), 'context')
         os.makedirs(context_dir, exist_ok=True)
         
         file_path = os.path.join(context_dir, 'vision_input.png')
-        
-        # Use scrot to take screenshot (overwrite)
         subprocess.run(['scrot', '--overwrite', file_path], check=True)
         
-        print(f"[Linux] Screenshot saved to {file_path}")
-        return file_path
+        msg = f"Screenshot saved to {file_path}"
+        print(f"[Linux] {msg}")
+        return True, msg
     except FileNotFoundError:
-        print("[Linux] 'scrot' not found. Please install it (sudo apt install scrot).")
-        return ""
+        msg = "'scrot' not found. Please install it (sudo apt install scrot)."
+        print(f"[Linux] {msg}")
+        return False, msg
     except Exception as e:
-        print(f"[Linux] Error taking screenshot: {e}")
-        return ""
+        msg = f"Error taking screenshot: {e}"
+        print(f"[Linux] {msg}")
+        return False, msg

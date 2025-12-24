@@ -145,6 +145,12 @@ def handle_client_command(data):
             print(f"[Fairy] Actions: Found {parsed['actions_found']}, Executed {parsed['actions_executed']}")
             emit('server_log', {'message': f"Executed {parsed['actions_executed']}/{parsed['actions_found']} actions"})
             
+            # Safety check: if actions found but none executed, the AI is hallucinating invalid actions
+            if parsed['actions_executed'] == 0:
+                print(f"[Loop] Invalid/unknown action detected. Stopping agent to prevent spiraling.")
+                emit('server_log', {'message': "Unknown action detected - stopping"})
+                break
+            
             # 5. Append observation to conversation history for next iteration
             observations = parsed.get('observations', [])
             if observations:

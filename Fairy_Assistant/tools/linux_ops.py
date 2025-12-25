@@ -195,6 +195,118 @@ def take_screenshot() -> tuple[bool, str]:
         return False, msg
 
 
+# === VISION ANALYSIS TOOL ===
+# Vision model for screen analysis (moondream is lightweight, llava is more capable)
+VISION_MODEL = "moondream"  # Can be changed to "llava" for better quality
+
+
+def analyze_image(image_path: str, prompt: str = None) -> tuple[bool, str]:
+    """
+    Analyze an image using a vision model (moondream/llava) via Ollama.
+    
+    Args:
+        image_path: Path to the image file to analyze.
+        prompt: Optional custom prompt for the analysis.
+    
+    Returns:
+        Tuple of (success, description) for observation feedback.
+    """
+    import base64
+    
+    if not os.path.exists(image_path):
+        msg = f"Error: Image not found at {image_path}"
+        print(f"[Vision] {msg}")
+        return False, msg
+    
+    # Default prompt for screen analysis
+    if prompt is None:
+        prompt = "Describe this screen content in detail for an automation agent. Include any visible text, windows, buttons, or important UI elements. Be concise but thorough."
+    
+    print(f"[Vision] Analyzing image: {image_path}")
+    
+    try:
+        import ollama
+        
+        # Read and encode the image
+        with open(image_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        # Call the vision model
+        response = ollama.chat(
+            model=VISION_MODEL,
+            messages=[{
+                'role': 'user',
+                'content': prompt,
+                'images': [image_data]
+            }]
+        )
+        
+        description = response['message']['content'].strip()
+        print(f"[Vision] Analysis complete ({len(description)} chars)")
+        return True, description
+        
+    except ImportError:
+        msg = "Error: ollama package not installed. Run: pip install ollama"
+        print(f"[Vision] {msg}")
+        return False, msg
+    except Exception as e:
+        error_str = str(e).lower()
+        if 'not found' in error_str or 'does not exist' in error_str:
+            msg = f"Error: Vision model '{VISION_MODEL}' not installed. Run: ollama pull {VISION_MODEL}"
+        elif 'connection' in error_str:
+            msg = "Error: Cannot connect to Ollama. Is it running? (ollama serve)"
+        else:
+            msg = f"Error analyzing image: {e}"
+        print(f"[Vision] {msg}")
+        return False, msg
+
+
+def see_screen(context: str = "screen") -> tuple[bool, str]:
+    """
+    Take a screenshot and analyze it using the vision model.
+    This is the combined "eyes" function for the AI.
+    
+    Args:
+        context: Optional context hint (e.g., "error", "window", "text").
+    
+    Returns:
+        Tuple of (success, description) for observation feedback.
+    """
+    print(f"[Vision] Looking at screen (context: {context})")
+    
+    # Step 1: Take screenshot
+    screenshot_path = "/tmp/fairy_vision_context.png"
+    try:
+        subprocess.run(['scrot', '--overwrite', screenshot_path], check=True)
+        print(f"[Vision] Screenshot captured: {screenshot_path}")
+    except FileNotFoundError:
+        msg = "Error: 'scrot' not found. Please install it (sudo apt install scrot)."
+        print(f"[Vision] {msg}")
+        return False, msg
+    except Exception as e:
+        msg = f"Error taking screenshot: {e}"
+        print(f"[Vision] {msg}")
+        return False, msg
+    
+    # Step 2: Customize prompt based on context
+    if context.lower() in ['error', 'problem', 'issue']:
+        prompt = "Describe any error messages, warnings, or problems visible on this screen. Focus on text that indicates errors."
+    elif context.lower() in ['text', 'read', 'content']:
+        prompt = "Read and transcribe all visible text on this screen. Be accurate and complete."
+    elif context.lower() in ['window', 'app', 'application']:
+        prompt = "Describe what application or window is currently active. Include the window title and main content."
+    else:
+        prompt = "Describe this screen content in detail for an automation agent. Include visible windows, text, buttons, and important UI elements. Be concise but thorough."
+    
+    # Step 3: Analyze with vision model
+    success, description = analyze_image(screenshot_path, prompt)
+    
+    if success:
+        return True, f"[Screen Analysis]\n{description}"
+    else:
+        return False, description
+
+
 # === SAFE TERMINAL TOOL ===
 # Banned commands/keywords for security
 BANNED_COMMANDS = [

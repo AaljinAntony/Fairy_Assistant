@@ -31,7 +31,13 @@ ACTION_ALIASES = {
     "SEARCH": "SEARCH_WEB",
     "GOOGLE": "SEARCH_WEB",
     "INTERNET": "SEARCH_WEB",
-    "LOOKUP": "SEARCH_WEB"
+    "LOOKUP": "SEARCH_WEB",
+    # Vision/Screen analysis aliases
+    "SEE": "VISION_ANALYSIS",
+    "LOOK": "VISION_ANALYSIS",
+    "VISION": "VISION_ANALYSIS",
+    "ANALYZE": "VISION_ANALYSIS",
+    "SCREEN": "VISION_ANALYSIS"
 }
 
 # Regex pattern to match action tags
@@ -159,6 +165,11 @@ def execute_action(action_type: str, args: list) -> tuple[bool, str]:
             if args:
                 return linux_ops.search_web(args[0])
             return False, "SEARCH_WEB requires a search query"
+        
+        # VISION_ANALYSIS: See and analyze the screen
+        elif action_type == 'VISION_ANALYSIS':
+            context = args[0] if args else "screen"
+            return linux_ops.see_screen(context)
         
         else:
             return False, f"Unknown action type: {action_type}"

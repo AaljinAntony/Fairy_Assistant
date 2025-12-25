@@ -20,7 +20,18 @@ ACTION_ALIASES = {
     "PRESS": "KEY_LINUX",
     "KEY": "KEY_LINUX",
     "SCREENSHOT": "SCREENSHOT_LINUX",
-    "SNAP": "SCREENSHOT_LINUX"
+    "SNAP": "SCREENSHOT_LINUX",
+    # Terminal/Shell aliases for safe command execution
+    "TERMINAL": "TERMINAL_LINUX",
+    "SHELL": "TERMINAL_LINUX",
+    "BASH": "TERMINAL_LINUX",
+    "CMD": "TERMINAL_LINUX",
+    "RUN": "TERMINAL_LINUX",
+    # Web search aliases
+    "SEARCH": "SEARCH_WEB",
+    "GOOGLE": "SEARCH_WEB",
+    "INTERNET": "SEARCH_WEB",
+    "LOOKUP": "SEARCH_WEB"
 }
 
 # Regex pattern to match action tags
@@ -136,6 +147,18 @@ def execute_action(action_type: str, args: list) -> tuple[bool, str]:
         # SCREENSHOT_LINUX: Take a screenshot
         elif action_type == 'SCREENSHOT_LINUX':
             return linux_ops.take_screenshot()
+        
+        # TERMINAL_LINUX: Execute safe shell commands
+        elif action_type == 'TERMINAL_LINUX':
+            if args:
+                return linux_ops.run_terminal_command(args[0])
+            return False, "TERMINAL_LINUX requires a command to execute"
+        
+        # SEARCH_WEB: Search the internet
+        elif action_type == 'SEARCH_WEB':
+            if args:
+                return linux_ops.search_web(args[0])
+            return False, "SEARCH_WEB requires a search query"
         
         else:
             return False, f"Unknown action type: {action_type}"

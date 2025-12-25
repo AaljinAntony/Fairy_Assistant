@@ -193,3 +193,147 @@ def take_screenshot() -> tuple[bool, str]:
         msg = f"Error taking screenshot: {e}"
         print(f"[Linux] {msg}")
         return False, msg
+
+
+# === SAFE TERMINAL TOOL ===
+# Banned commands/keywords for security
+BANNED_COMMANDS = [
+    "sudo", "rm", "chmod", "chown", "wget", "curl", 
+    ">", ">>", "|", "&&", "||", ";",  # Prevent piping and chaining
+    "dd", "mkfs", "fdisk", "mount", "umount",  # Disk operations
+    "shutdown", "reboot", "init", "systemctl",  # System control
+    "passwd", "useradd", "userdel",  # User management
+    "apt", "apt-get", "dpkg", "yum", "pacman",  # Package managers
+    "eval", "exec", "source", ".",  # Shell execution
+    "$(", "`",  # Command substitution
+]
+
+
+def run_terminal_command(command_str: str) -> tuple[bool, str]:
+    """
+    Execute a shell command with safety checks.
+    
+    Args:
+        command_str: The shell command to execute.
+    
+    Returns:
+        Tuple of (success, message) for observation feedback.
+    
+    Safety: Blocks dangerous commands defined in BANNED_COMMANDS.
+    Allowed: ls, mkdir, cp, mv, cat, grep, pwd, touch, head, tail, find, etc.
+    """
+    command_str = command_str.strip()
+    
+    # Security Check: Scan for banned keywords
+    for banned in BANNED_COMMANDS:
+        if banned in command_str.lower():
+            msg = f"Error: Security Block. Command contains banned keyword: '{banned}'"
+            print(f"[Security Alert] Blocked: {command_str}")
+            return False, msg
+    
+    # Log the command being executed
+    print(f"[Terminal] Executing: {command_str}")
+    
+    try:
+        result = subprocess.run(
+            command_str,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10,  # 10 second timeout for safety
+            cwd=os.path.expanduser("~")  # Default to home directory
+        )
+        
+        stdout = result.stdout.strip() if result.stdout else ""
+        stderr = result.stderr.strip() if result.stderr else ""
+        
+        # Build response message
+        if result.returncode == 0:
+            if stdout:
+                msg = f"Output:\n{stdout}"
+            else:
+                msg = "Command executed successfully (no output)"
+            if stderr:
+                msg += f"\nWarnings: {stderr}"
+            print(f"[Terminal] Success: {command_str}")
+            return True, msg
+        else:
+            msg = f"Command failed (exit code {result.returncode})"
+            if stderr:
+                msg += f"\nError: {stderr}"
+            if stdout:
+                msg += f"\nOutput: {stdout}"
+            print(f"[Terminal] Failed: {command_str}")
+            return False, msg
+            
+    except subprocess.TimeoutExpired:
+        msg = "Error: Command timed out (10 second limit)"
+        print(f"[Terminal] Timeout: {command_str}")
+        return False, msg
+    except Exception as e:
+        msg = f"Error executing command: {e}"
+        print(f"[Terminal] Error: {command_str} - {e}")
+        return False, msg
+
+
+# === WEB SEARCH TOOL ===
+def search_web(query: str, max_results: int = 3) -> tuple[bool, str]:
+    """
+    Search the web using DuckDuckGo and return formatted results.
+    
+    Args:
+        query: The search query string.
+        max_results: Maximum number of results to return (default: 3).
+    
+    Returns:
+        Tuple of (success, formatted_results_string) for observation feedback.
+    """
+    try:
+        # Try new package name first (ddgs)
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            # Fallback to old package name
+            from duckduckgo_search import DDGS
+    except ImportError:
+        msg = "Error: Web search not installed. Run: pip install ddgs"
+        print(f"[Search] {msg}")
+        return False, msg
+    
+    query = query.strip()
+    if not query:
+        return False, "Error: Search query cannot be empty"
+    
+    print(f"[Search] Searching: {query}")
+    
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+        
+        if not results:
+            msg = f"No results found for: {query}"
+            print(f"[Search] {msg}")
+            return True, msg
+        
+        # Format results for AI consumption
+        formatted = []
+        for i, result in enumerate(results, 1):
+            title = result.get('title', 'No title')
+            body = result.get('body', 'No description')
+            href = result.get('href', '')
+            formatted.append(f"[Result {i}]\nTitle: {title}\nSummary: {body}\nURL: {href}")
+        
+        output = "\n\n".join(formatted)
+        print(f"[Search] Found {len(results)} results for: {query}")
+        return True, output
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        if 'ratelimit' in error_str or '429' in error_str:
+            msg = "Error: Search rate limited. Please try again in a moment."
+        elif 'timeout' in error_str or 'connection' in error_str:
+            msg = "Error: No internet connection or search service unavailable."
+        else:
+            msg = f"Error searching: {e}"
+        print(f"[Search] {msg}")
+        return False, msg

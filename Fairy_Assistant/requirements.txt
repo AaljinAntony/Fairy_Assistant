@@ -25,3 +25,6 @@ python-dotenv
 
 # RAG / Text Splitting
 langchain-text-splitters
+
+# Web Search
+ddgs

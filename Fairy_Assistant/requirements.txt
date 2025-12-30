@@ -28,3 +28,9 @@ langchain-text-splitters
 
 # Web Search
 ddgs
+
+# Image Processing
+Pillow
+
+# Cloud Vision
+google-generativeai

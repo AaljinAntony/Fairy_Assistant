@@ -5,9 +5,16 @@ Provides functions to control the Linux desktop using subprocess and pyautogui.
 IMPORTANT: Requires X11 (Xorg). Does NOT work on Wayland.
 """
 
-import subprocess
 import os
+import time
+import subprocess
+from PIL import Image
 import pyautogui
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Ensure DISPLAY is set for X11 operations
 os.environ.setdefault('DISPLAY', ':0')
@@ -15,6 +22,16 @@ os.environ.setdefault('DISPLAY', ':0')
 # Configure pyautogui
 pyautogui.FAILSAFE = True  # Move mouse to corner to abort
 pyautogui.PAUSE = 0.1  # Small pause between actions
+
+# Configuration from .env
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+LOCAL_MODEL = os.getenv("VISION_MODEL_LOCAL", "moondream")
+CLOUD_MODEL = os.getenv("VISION_MODEL_CLOUD", "gemini-1.5-flash")
+SCREENSHOT_PATH = os.getenv("SCREENSHOT_PATH", "/tmp/fairy_vision_context.png")
+
+# Configure Gemini
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 
 
 def open_app(app_name: str) -> tuple[bool, str]:
@@ -196,110 +213,108 @@ def take_screenshot() -> tuple[bool, str]:
 
 
 # === VISION ANALYSIS TOOL ===
-# Vision model for screen analysis (moondream is lightweight, llava is more capable)
-VISION_MODEL = "moondream"  # Can be changed to "llava" for better quality
+# Vision model for screen analysis
 
 
-def analyze_image(image_path: str, prompt: str = None) -> tuple[bool, str]:
-    """
-    Analyze an image using a vision model (moondream/llava) via Ollama.
-    
-    Args:
-        image_path: Path to the image file to analyze.
-        prompt: Optional custom prompt for the analysis.
-    
-    Returns:
-        Tuple of (success, description) for observation feedback.
-    """
+def analyze_screen_local(image_path: str, prompt: str) -> tuple[bool, str]:
+    """Analyze image using local Ollama models (moondream/llava)."""
     import base64
     
     if not os.path.exists(image_path):
-        msg = f"Error: Image not found at {image_path}"
-        print(f"[Vision] {msg}")
-        return False, msg
+        return False, "Error: Image not found"
     
-    # Default prompt for screen analysis
-    if prompt is None:
-        prompt = "Describe this screen content in detail for an automation agent. Include any visible text, windows, buttons, or important UI elements. Be concise but thorough."
-    
-    print(f"[Vision] Analyzing image: {image_path}")
+    print(f"[Vision] Optimizing image for LOCAL: {image_path}")
+    optimized_path = "/tmp/vision_safe.jpg"
+    try:
+        with Image.open(image_path) as img:
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            img.thumbnail((640, 640))
+            img.save(optimized_path, "JPEG", quality=80)
+        image_path = optimized_path
+    except Exception as e:
+        print(f"[Vision] Error resizing image: {e}")
     
     try:
         import ollama
-        
-        # Read and encode the image
         with open(image_path, 'rb') as f:
             image_data = base64.b64encode(f.read()).decode('utf-8')
-        
-        # Call the vision model
+            
+        print("[Vision] Unloading brain to free VRAM...")
+        try:
+            for brain_model in ["llama3.2:latest", "llama3.2:3b", "llama3.1:latest"]:
+                ollama.generate(model=brain_model, prompt="", keep_alive=0)
+            time.sleep(1.0)
+        except:
+            pass
+            
+        print(f"[Vision] Loading eyes ({LOCAL_MODEL})...")
         response = ollama.chat(
-            model=VISION_MODEL,
-            messages=[{
-                'role': 'user',
-                'content': prompt,
-                'images': [image_data]
-            }]
+            model=LOCAL_MODEL,
+            messages=[{'role': 'user', 'content': prompt, 'images': [image_data]}],
+            keep_alive=0
         )
         
         description = response['message']['content'].strip()
-        print(f"[Vision] Analysis complete ({len(description)} chars)")
         return True, description
-        
-    except ImportError:
-        msg = "Error: ollama package not installed. Run: pip install ollama"
-        print(f"[Vision] {msg}")
-        return False, msg
     except Exception as e:
-        error_str = str(e).lower()
-        if 'not found' in error_str or 'does not exist' in error_str:
-            msg = f"Error: Vision model '{VISION_MODEL}' not installed. Run: ollama pull {VISION_MODEL}"
-        elif 'connection' in error_str:
-            msg = "Error: Cannot connect to Ollama. Is it running? (ollama serve)"
-        else:
-            msg = f"Error analyzing image: {e}"
-        print(f"[Vision] {msg}")
-        return False, msg
+        print(f"[Vision Local Crash] {e}")
+        return False, f"Local Vision Error: {e}"
+
+
+def analyze_screen_cloud(image_path: str, prompt: str) -> tuple[bool, str]:
+    """Analyze image using Gemini (Cloud API)."""
+    if not GEMINI_KEY:
+        return False, "Error: GEMINI_API_KEY not set in environment."
+    
+    print(f"[Vision] Uploading to Cloud: {image_path}")
+    try:
+        # Use configured cloud model
+        model = genai.GenerativeModel(CLOUD_MODEL)
+        
+        with Image.open(image_path) as img:
+            response = model.generate_content([prompt, img])
+            
+        description = response.text.strip()
+        print(f"[Vision] Cloud analysis complete ({len(description)} chars)")
+        return True, description
+    except Exception as e:
+        print(f"[Vision Cloud Crash] {e}")
+        return False, f"Cloud Vision Error: {e}"
 
 
 def see_screen(context: str = "screen") -> tuple[bool, str]:
     """
-    Take a screenshot and analyze it using the vision model.
-    This is the combined "eyes" function for the AI.
-    
-    Args:
-        context: Optional context hint (e.g., "error", "window", "text").
-    
-    Returns:
-        Tuple of (success, description) for observation feedback.
+    Take a screenshot and analyze it. 
+    Switches between Local and Cloud based on context keywords.
     """
     print(f"[Vision] Looking at screen (context: {context})")
     
     # Step 1: Take screenshot
-    screenshot_path = "/tmp/fairy_vision_context.png"
+    screenshot_path = SCREENSHOT_PATH
     try:
         subprocess.run(['scrot', '--overwrite', screenshot_path], check=True)
-        print(f"[Vision] Screenshot captured: {screenshot_path}")
-    except FileNotFoundError:
-        msg = "Error: 'scrot' not found. Please install it (sudo apt install scrot)."
-        print(f"[Vision] {msg}")
-        return False, msg
     except Exception as e:
-        msg = f"Error taking screenshot: {e}"
-        print(f"[Vision] {msg}")
-        return False, msg
+        return False, f"Screenshot Error: {e}"
     
     # Step 2: Customize prompt based on context
-    if context.lower() in ['error', 'problem', 'issue']:
+    if any(kw in context.lower() for kw in ['error', 'problem', 'issue']):
         prompt = "Describe any error messages, warnings, or problems visible on this screen. Focus on text that indicates errors."
-    elif context.lower() in ['text', 'read', 'content']:
+    elif any(kw in context.lower() for kw in ['text', 'read', 'content']):
         prompt = "Read and transcribe all visible text on this screen. Be accurate and complete."
-    elif context.lower() in ['window', 'app', 'application']:
+    elif any(kw in context.lower() for kw in ['window', 'app', 'application']):
         prompt = "Describe what application or window is currently active. Include the window title and main content."
     else:
-        prompt = "Describe this screen content in detail for an automation agent. Include visible windows, text, buttons, and important UI elements. Be concise but thorough."
-    
-    # Step 3: Analyze with vision model
-    success, description = analyze_image(screenshot_path, prompt)
+        prompt = "Describe this screen content in detail for an automation agent. Include visible windows, text, buttons, and important UI elements."
+
+    # Step 3: Logic Check for Cloud Override
+    cloud_keywords = ["cloud", "api", "online", "heavy", "detailed"]
+    if any(keyword in context.lower() for keyword in cloud_keywords):
+        print("[Vision] Mode: CLOUD (Offloading to Gemini)")
+        success, description = analyze_screen_cloud(screenshot_path, prompt)
+    else:
+        print("[Vision] Mode: LOCAL (Using GPU)")
+        success, description = analyze_screen_local(screenshot_path, prompt)
     
     if success:
         return True, f"[Screen Analysis]\n{description}"

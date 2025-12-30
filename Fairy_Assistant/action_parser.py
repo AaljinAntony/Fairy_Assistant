@@ -37,7 +37,8 @@ ACTION_ALIASES = {
     "LOOK": "VISION_ANALYSIS",
     "VISION": "VISION_ANALYSIS",
     "ANALYZE": "VISION_ANALYSIS",
-    "SCREEN": "VISION_ANALYSIS"
+    "SCREEN": "VISION_ANALYSIS",
+    "WATCH": "VISION_ANALYSIS"
 }
 
 # Regex pattern to match action tags

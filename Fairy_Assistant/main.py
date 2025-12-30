@@ -21,8 +21,9 @@ load_dotenv()
 
 # Configuration
 MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2")
-HOST = "0.0.0.0"
-PORT = 5000
+HOST = os.getenv("HOST_IP", "0.0.0.0")
+PORT = int(os.getenv("PORT", 5000))
+DEBUG = os.getenv("DEBUG_MODE", "True") == "True"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -213,4 +214,5 @@ def index():
 
 if __name__ == '__main__':
     print(f"[Fairy] Starting server on {HOST}:{PORT}")
-    socketio.run(app, host=HOST, port=PORT, debug=True)
+    print("[Fairy] Configuration loaded from .env")
+    socketio.run(app, host=HOST, port=PORT, debug=DEBUG)
